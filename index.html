@@ -1211,13 +1211,13 @@ footer {
     </div>
     
     <div class="copyright">
-        © 2026 Smart Video Downloader. This is a demonstration tool. For actual downloads, backend implementation is required.
+        © 2024 Smart Video Downloader. This is a demonstration tool. For actual downloads, backend implementation is required.
     </div>
 </footer>
 
 <script>
 // Configuration - IMPORTANT: Change this to your actual Render URL
-const API_BASE_URL = 'https://127.0.0.1:5000/api'; // CHANGE TO YOUR BACKEND URL
+const API_BASE_URL = 'https://video-downloader-backend-tarw.onrender.com'; // CHANGE TO YOUR BACKEND URL
 
 // State management
 let currentState = {
@@ -1226,7 +1226,9 @@ let currentState = {
     videoInfo: null,
     selectedVideoFormat: null,
     selectedAudioFormat: null,
-    currentTab: 'video'
+    currentTab: 'video',
+    isLoading: false,
+    isDownloading: false
 };
 
 // Theme management
@@ -1298,7 +1300,7 @@ function updateSteps(stepNumber) {
     
     // Update steps based on current step
     for (let i = 1; i <= 3; i++) {
-        const step = document.querySelector(`.step[data-step="${i}"]`);
+        const step = document.getElementById(`step${i}`);
         if (i < stepNumber) {
             step.classList.add('completed');
         } else if (i === stepNumber) {
@@ -1325,31 +1327,140 @@ function resetToStep1() {
         videoInfo: null,
         selectedVideoFormat: null,
         selectedAudioFormat: null,
-        currentTab: 'video'
+        currentTab: 'video',
+        isLoading: false,
+        isDownloading: false
     };
 }
 
-// Example URLs
+// Example URLs - Jab user platform tag click kare tab hi example set ho
 function setExample(platform) {
     const examples = {
-        youtube: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
-        instagram: 'https://www.instagram.com/reel/Cxample123/',
-        tiktok: 'https://www.tiktok.com/@user/video/123456789',
-        facebook: 'https://www.facebook.com/watch/?v=123456789',
-        twitter: 'https://twitter.com/user/status/123456789',
-        whatsapp: 'https://web.whatsapp.com/status/123456789'
+        youtube: 'https://www.youtube.com/watch?v=9bZkp7q19f0', // Psy - Gangnam Style
+        instagram: 'https://www.instagram.com/reel/C3sBWqjRsAM/', // Working Instagram reel
+        tiktok: 'https://www.tiktok.com/@tiktok/video/7320452145187949867', // Working TikTok
+        facebook: 'https://www.facebook.com/facebook/videos/10153231379946729/', // Facebook video
+        twitter: 'https://twitter.com/YouTube/status/1740915562950775271', // Twitter video
+        whatsapp: 'https://web.whatsapp.com/' // Just placeholder
     };
     
     if (examples[platform]) {
         document.getElementById('videoUrl').value = examples[platform];
         currentState.platform = platform;
+        
+        // Auto-focus the input field
+        document.getElementById('videoUrl').focus();
+        
+        // Show a brief hint
+        showHint(`Example ${platform.charAt(0).toUpperCase() + platform.slice(1)} URL added. Paste your own URL or click "Analyze Video"`);
     }
 }
 
-// Fetch video info from backend
+// Show hint message
+function showHint(message, duration = 3000) {
+    // Remove existing hints
+    document.querySelectorAll('.hint-message').forEach(hint => hint.remove());
+    
+    const hint = document.createElement('div');
+    hint.className = 'hint-message';
+    hint.innerHTML = `<i class="fas fa-info-circle"></i> ${message}`;
+    
+    document.body.appendChild(hint);
+    
+    // Auto remove after duration
+    setTimeout(() => {
+        if (hint.parentNode) {
+            hint.style.opacity = '0';
+            hint.style.transform = 'translateX(-50%) translateY(20px)';
+            setTimeout(() => {
+                if (hint.parentNode) {
+                    document.body.removeChild(hint);
+                }
+            }, 300);
+        }
+    }, duration);
+}
+
+// IMPROVED: URL Validation - Check for complete YouTube URLs
+function isValidUrl(string) {
+    try {
+        const url = new URL(string);
+        
+        // Check protocol
+        if (!['http:', 'https:'].includes(url.protocol)) {
+            return false;
+        }
+        
+        // Special validation for YouTube URLs
+        if (url.hostname.includes('youtube.com') || url.hostname.includes('youtu.be')) {
+            // For youtube.com/watch?v=VIDEO_ID
+            if (url.hostname.includes('youtube.com') && url.pathname.includes('/watch')) {
+                const videoId = url.searchParams.get('v');
+                if (!videoId || videoId.length < 5) {
+                    return false; // Invalid or missing video ID
+                }
+            }
+            // For youtu.be/VIDEO_ID
+            else if (url.hostname.includes('youtu.be')) {
+                const path = url.pathname.replace('/', '');
+                if (!path || path.length < 5) {
+                    return false; // Invalid or missing video ID
+                }
+            }
+        }
+        
+        return true;
+    } catch (_) {
+        return false;
+    }
+}
+
+// Clean and validate video URL
+function cleanVideoUrl(url) {
+    try {
+        const urlObj = new URL(url);
+        
+        // For YouTube URLs, ensure video ID is present
+        if (urlObj.hostname.includes('youtube.com') && urlObj.pathname.includes('/watch')) {
+            const videoId = urlObj.searchParams.get('v');
+            if (!videoId || videoId.length < 5) {
+                throw new Error('Invalid YouTube URL: Missing video ID');
+            }
+            // Keep only essential parameters
+            urlObj.search = `?v=${videoId}`;
+        }
+        // For youtu.be URLs
+        else if (urlObj.hostname.includes('youtu.be')) {
+            const path = urlObj.pathname.replace('/', '');
+            if (!path || path.length < 5) {
+                throw new Error('Invalid YouTube Short URL: Missing video ID');
+            }
+            // Remove all query parameters
+            urlObj.search = '';
+        }
+        
+        // Remove common tracking parameters
+        const trackingParams = ['si', 'feature', 't', 'ab_channel', 'utm_', 'fbclid', 'gclid'];
+        urlObj.searchParams.forEach((value, key) => {
+            if (trackingParams.some(param => key.includes(param))) {
+                urlObj.searchParams.delete(key);
+            }
+        });
+        
+        return urlObj.toString();
+        
+    } catch (error) {
+        console.error('Error cleaning URL:', error);
+        return url; // Return original if error
+    }
+}
+
+// Fetch video info from backend - IMPROVED with better validation
 async function fetchVideoInfo() {
+    if (currentState.isLoading) return;
+    
     const urlInput = document.getElementById('videoUrl');
-    const url = urlInput.value.trim();
+    let url = urlInput.value.trim();
     
     if (!url) {
         showError('Please enter a video URL');
@@ -1357,11 +1468,26 @@ async function fetchVideoInfo() {
         return;
     }
     
-    if (!isValidUrl(url)) {
-        showError('Please enter a valid URL');
+    // Clean and validate URL
+    try {
+        url = cleanVideoUrl(url);
+    } catch (error) {
+        showError(error.message);
         urlInput.focus();
         return;
     }
+    
+    if (!isValidUrl(url)) {
+        showError('Please enter a valid video URL. Example: https://www.youtube.com/watch?v=VIDEO_ID');
+        urlInput.focus();
+        return;
+    }
+    
+    // Update input with cleaned URL
+    urlInput.value = url;
+    
+    // Prevent multiple clicks
+    currentState.isLoading = true;
     
     // Show progress bar
     const progressContainer = document.getElementById('progressContainer');
@@ -1371,7 +1497,7 @@ async function fetchVideoInfo() {
     progressContainer.style.display = 'block';
     progressBar.style.width = '0%';
     fetchBtn.disabled = true;
-    fetchBtn.innerHTML = '<span class="loader"></span> Analyzing...';
+    fetchBtn.innerHTML = '<span class="loader"></span> Analyzing Video...';
     
     try {
         // Simulate progress
@@ -1382,7 +1508,8 @@ async function fetchVideoInfo() {
             if (progress >= 80) clearInterval(progressInterval);
         }, 100);
         
-        // Call backend API
+        console.log("Sending analyze request for:", url);
+        
         const response = await fetch(`${API_BASE_URL}/analyze`, {
             method: 'POST',
             headers: {
@@ -1394,22 +1521,30 @@ async function fetchVideoInfo() {
         clearInterval(progressInterval);
         progressBar.style.width = '100%';
         
+        // Handle response errors
         if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.error || 'Failed to analyze video');
+            let errorMsg = 'Failed to analyze video';
+            try {
+                const errorData = await response.json();
+                errorMsg = errorData.error || errorMsg;
+            } catch (e) {
+                errorMsg = `Server error: ${response.status}`;
+            }
+            throw new Error(errorMsg);
         }
         
         const data = await response.json();
+        console.log("Analyze response:", data);
         
         if (!data.success) {
             throw new Error(data.error || 'Failed to analyze video');
         }
         
         // Update UI with video info
-        displayVideoInfo(data.video_info);
+        displayVideoInfo(data.video_info || data);
         
         // Store video info
-        currentState.videoInfo = data.video_info;
+        currentState.videoInfo = data.video_info || data;
         currentState.url = url;
         currentState.platform = detectPlatform(url);
         
@@ -1419,12 +1554,27 @@ async function fetchVideoInfo() {
             document.getElementById('videoInfoSection').style.display = 'block';
             updateSteps(2);
             resetProgress();
+            currentState.isLoading = false;
         }, 500);
         
     } catch (error) {
-        console.error('Error:', error);
-        showError(error.message);
+        console.error('Fetch error:', error);
+        
+        // User-friendly error messages
+        let userMessage = error.message;
+        if (error.message.includes('timeout')) {
+            userMessage = 'Request timeout. Video might be too long. Try a shorter video.';
+        } else if (error.message.includes('network')) {
+            userMessage = 'Network error. Check your internet connection.';
+        } else if (error.message.includes('unsupported')) {
+            userMessage = 'This platform is not supported or the video is private.';
+        } else if (error.message.includes('Invalid YouTube URL')) {
+            userMessage = 'Invalid YouTube URL. Please enter a complete URL with video ID.';
+        }
+        
+        showError(userMessage);
         resetProgress();
+        currentState.isLoading = false;
     }
     
     function resetProgress() {
@@ -1437,75 +1587,166 @@ async function fetchVideoInfo() {
     }
 }
 
-function isValidUrl(string) {
-    try {
-        new URL(string);
-        return true;
-    } catch (_) {
-        return false;
-    }
-}
-
 function detectPlatform(url) {
-    if (url.includes('youtube.com') || url.includes('youtu.be')) return 'youtube';
-    if (url.includes('instagram.com')) return 'instagram';
-    if (url.includes('tiktok.com')) return 'tiktok';
-    if (url.includes('facebook.com') || url.includes('fb.watch')) return 'facebook';
-    if (url.includes('twitter.com') || url.includes('x.com')) return 'twitter';
+    const platforms = {
+        'youtube.com': 'youtube',
+        'youtu.be': 'youtube',
+        'instagram.com': 'instagram',
+        'tiktok.com': 'tiktok',
+        'facebook.com': 'facebook',
+        'fb.watch': 'facebook',
+        'twitter.com': 'twitter',
+        'x.com': 'twitter',
+        'whatsapp.com': 'whatsapp'
+    };
+    
+    for (const [domain, platform] of Object.entries(platforms)) {
+        if (url.includes(domain)) return platform;
+    }
     return 'unknown';
 }
 
-// Display video info
+// Display video info - IMPROVED with actual backend data
 function displayVideoInfo(videoInfo) {
-    // Basic info
-    document.getElementById('videoTitle').textContent = videoInfo.title || 'Unknown Title';
-    document.getElementById('videoDuration').textContent = videoInfo.duration || '00:00';
+    console.log("Video info to display:", videoInfo);
     
-    // Calculate total size
+    // Basic info from actual backend data
+    const title = videoInfo.title || videoInfo.name || 'Unknown Title';
+    document.getElementById('videoTitle').textContent = title;
+    
+    // Format duration properly
+    const duration = videoInfo.duration || videoInfo.length_string || '0';
+    document.getElementById('videoDuration').textContent = formatDuration(duration);
+    
+    // Use actual file size if available
     let totalSize = 0;
-    if (videoInfo.formats && videoInfo.formats.length > 0) {
-        totalSize = videoInfo.formats.reduce((sum, fmt) => sum + (fmt.filesize || 0), 0);
+    let sizeText = 'Calculating...';
+    
+    if (videoInfo.filesize && videoInfo.filesize > 0) {
+        totalSize = videoInfo.filesize;
+        sizeText = formatFileSize(totalSize);
+    } else if (videoInfo.formats && videoInfo.formats.length > 0) {
+        // Calculate from formats
+        const formatsWithSize = videoInfo.formats.filter(f => f.filesize && f.filesize > 0);
+        if (formatsWithSize.length > 0) {
+            totalSize = formatsWithSize.reduce((sum, fmt) => sum + fmt.filesize, 0);
+            sizeText = formatFileSize(totalSize);
+        }
     }
-    document.getElementById('videoSize').textContent = formatFileSize(totalSize);
+    
+    document.getElementById('videoSize').textContent = sizeText;
     
     // Size progress bar
-    const maxSize = 500 * 1024 * 1024;
-    const sizePercent = Math.min((totalSize / maxSize) * 100, 100);
+    const maxSize = 500 * 1024 * 1024; // 500MB
+    const sizePercent = totalSize > 0 ? Math.min((totalSize / maxSize) * 100, 100) : 0;
     document.getElementById('sizeFill').style.width = sizePercent + '%';
     
-    // Find highest resolution
+    // Find actual resolution from backend
     let maxResolution = 'Unknown';
-    if (videoInfo.formats && videoInfo.formats.length > 0) {
-        const videoFormats = videoInfo.formats.filter(f => f.vcodec && f.vcodec !== 'none');
+    if (videoInfo.resolution && videoInfo.resolution !== 'audio only') {
+        maxResolution = videoInfo.resolution;
+    } else if (videoInfo.formats && videoInfo.formats.length > 0) {
+        const videoFormats = videoInfo.formats.filter(f => 
+            f.vcodec && f.vcodec !== 'none' && f.height
+        );
         if (videoFormats.length > 0) {
             const highestRes = videoFormats.reduce((max, fmt) => {
-                const res = parseInt((fmt.resolution || '0x0').split('x')[1]) || 0;
-                return res > max.res ? {res: res, fmt: fmt} : max;
-            }, {res: 0, fmt: null});
-            maxResolution = highestRes.fmt ? (highestRes.fmt.resolution || 'Unknown') : 'Unknown';
+                const height = fmt.height || 0;
+                return height > max.height ? {height: height, fmt: fmt} : max;
+            }, {height: 0, fmt: null});
+            
+            if (highestRes.fmt) {
+                maxResolution = `${highestRes.fmt.width || '?'}x${highestRes.fmt.height}`;
+            }
         }
     }
     
     document.getElementById('videoResolution').textContent = maxResolution;
     document.getElementById('videoQuality').textContent = getQualityLabel(maxResolution);
     
-    // Set thumbnail
+    // Set thumbnail - use actual backend thumbnail
+    const thumbnailImg = document.getElementById('thumbnailImg');
     if (videoInfo.thumbnail) {
-        const img = document.getElementById('thumbnailImg');
-        img.src = videoInfo.thumbnail;
-        img.alt = videoInfo.title || 'Video thumbnail';
-        img.onerror = function() {
+        thumbnailImg.src = videoInfo.thumbnail;
+        thumbnailImg.alt = title;
+        thumbnailImg.onerror = function() {
             this.src = 'https://images.unsplash.com/photo-1611162616475-46b635cb6868?w=400&h=225&fit=crop';
         };
+    } else if (videoInfo.thumbnails && videoInfo.thumbnails.length > 0) {
+        // Use highest quality thumbnail
+        const bestThumbnail = videoInfo.thumbnails.reduce((best, thumb) => {
+            return thumb.width > best.width ? thumb : best;
+        }, videoInfo.thumbnails[0]);
+        thumbnailImg.src = bestThumbnail.url;
+    } else {
+        thumbnailImg.src = 'https://images.unsplash.com/photo-1611162616475-46b635cb6868?w=400&h=225&fit=crop';
     }
     
-    // Default values for missing fields
-    document.getElementById('videoChannel').textContent = videoInfo.uploader || 'Unknown Uploader';
-    document.getElementById('videoDate').textContent = videoInfo.upload_date || 'Unknown Date';
+    // Set channel and date from actual data
+    document.getElementById('videoChannel').textContent = 
+        videoInfo.uploader || videoInfo.channel || videoInfo.author || 'Unknown Uploader';
+    
+    document.getElementById('videoDate').textContent = 
+        formatUploadDate(videoInfo.upload_date || videoInfo.timestamp || videoInfo.release_date);
+}
+
+function formatDuration(duration) {
+    if (!duration) return "00:00";
+    
+    // If it's already in HH:MM:SS or MM:SS format
+    if (typeof duration === 'string' && duration.includes(':')) {
+        const parts = duration.split(':');
+        if (parts.length === 3) {
+            // HH:MM:SS
+            return duration;
+        } else if (parts.length === 2) {
+            // MM:SS
+            return duration;
+        }
+    }
+    
+    // If it's in seconds
+    const seconds = parseInt(duration);
+    if (isNaN(seconds)) return "00:00";
+    
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+    
+    if (hours > 0) {
+        return `${hours}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    } else {
+        return `${minutes}:${secs.toString().padStart(2, '0')}`;
+    }
+}
+
+function formatUploadDate(dateString) {
+    if (!dateString) return 'Unknown Date';
+    
+    // Format YYYYMMDD to readable date
+    if (/^\d{8}$/.test(dateString)) {
+        const year = dateString.substring(0, 4);
+        const month = dateString.substring(4, 6);
+        const day = dateString.substring(6, 8);
+        return `${day}-${month}-${year}`;
+    }
+    
+    // Try to parse as timestamp
+    const timestamp = parseInt(dateString);
+    if (!isNaN(timestamp)) {
+        const date = new Date(timestamp * 1000);
+        return date.toLocaleDateString('en-IN', {
+            day: 'numeric',
+            month: 'short',
+            year: 'numeric'
+        });
+    }
+    
+    return dateString;
 }
 
 function formatFileSize(bytes) {
-    if (bytes === 0) return '0 B';
+    if (!bytes || bytes === 0) return '0 B';
     const k = 1024;
     const sizes = ['B', 'KB', 'MB', 'GB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
@@ -1513,30 +1754,40 @@ function formatFileSize(bytes) {
 }
 
 function getQualityLabel(resolution) {
-    if (!resolution || resolution === 'Unknown' || resolution === 'audio') return 'Unknown';
-    const height = parseInt(resolution.split('x')[1]) || 0;
+    if (!resolution || resolution === 'Unknown' || resolution === 'audio only') return 'Unknown';
+    
+    const heightMatch = resolution.match(/(\d+)/);
+    const height = heightMatch ? parseInt(heightMatch[1]) : 0;
+    
     if (height >= 2160) return '4K Ultra HD';
     if (height >= 1440) return '2K Quad HD';
-    if (height >= 1080) return 'Full HD';
-    if (height >= 720) return 'HD';
-    if (height >= 480) return 'SD';
-    return 'Low Quality';
+    if (height >= 1080) return 'Full HD (1080p)';
+    if (height >= 720) return 'HD (720p)';
+    if (height >= 480) return 'SD (480p)';
+    if (height >= 360) return '360p';
+    if (height >= 240) return '240p';
+    if (height >= 144) return '144p';
+    return 'Unknown Quality';
 }
 
-// Show download options
+// Show download options - FIXED with actual data
 async function showDownloadOptions() {
+    if (currentState.isLoading) return;
+    
     if (!currentState.url) {
         showError('Please analyze a video first');
         return;
     }
     
+    // Show loading state on the button
+    const continueBtn = document.querySelector('#videoInfoSection .fetch-btn');
+    const originalBtnText = continueBtn.innerHTML;
+    continueBtn.disabled = true;
+    continueBtn.innerHTML = '<span class="loader small"></span> Loading Formats...';
+    currentState.isLoading = true;
+    
     try {
-        // Show loading
-        const videoFormatsContainer = document.getElementById('videoFormats');
-        const audioFormatsContainer = document.getElementById('audioFormats');
-        
-        videoFormatsContainer.innerHTML = '<div class="loading">Loading formats...</div>';
-        audioFormatsContainer.innerHTML = '<div class="loading">Loading formats...</div>';
+        console.log("Fetching formats for:", currentState.url);
         
         // Fetch formats from backend
         const response = await fetch(`${API_BASE_URL}/formats`, {
@@ -1547,18 +1798,21 @@ async function showDownloadOptions() {
             body: JSON.stringify({ url: currentState.url })
         });
         
+        console.log("Formats response status:", response.status);
+        
         if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.error || 'Failed to fetch formats');
+            const errorData = await response.json().catch(() => ({ error: 'Server error' }));
+            throw new Error(errorData.error || `Server error: ${response.status}`);
         }
         
         const data = await response.json();
+        console.log("Formats data received:", data);
         
         if (!data.success) {
             throw new Error(data.error || 'Failed to fetch formats');
         }
         
-        // Display download options
+        // Display download options with actual data
         displayDownloadOptions(data);
         
         // Show download section
@@ -1567,9 +1821,13 @@ async function showDownloadOptions() {
         updateSteps(3);
         
     } catch (error) {
-        console.error('Error:', error);
-        showError(error.message);
-        backToVideoInfo();
+        console.error('Error in showDownloadOptions:', error);
+        showError(`Failed to load formats: ${error.message}`);
+    } finally {
+        // Reset button state
+        continueBtn.disabled = false;
+        continueBtn.innerHTML = originalBtnText;
+        currentState.isLoading = false;
     }
 }
 
@@ -1587,7 +1845,10 @@ function backToUrlInput() {
     document.getElementById('videoUrl').focus();
 }
 
+// Display download options - IMPROVED with proper format categories
 function displayDownloadOptions(data) {
+    console.log("Displaying formats data:", data);
+    
     const videoFormatsContainer = document.getElementById('videoFormats');
     const audioFormatsContainer = document.getElementById('audioFormats');
     
@@ -1599,39 +1860,222 @@ function displayDownloadOptions(data) {
     currentState.selectedVideoFormat = null;
     currentState.selectedAudioFormat = null;
     
-    // Display video formats
-    if (data.video_formats && data.video_formats.length > 0) {
-        // Sort by resolution (highest first)
-        const sortedVideoFormats = data.video_formats.sort((a, b) => {
-            const aHeight = parseInt((a.resolution || '0x0').split('x')[1]) || 0;
-            const bHeight = parseInt((b.resolution || '0x0').split('x')[1]) || 0;
-            return bHeight - aHeight;
-        });
-        
-        sortedVideoFormats.forEach((format, index) => {
-            const card = createFormatCard(format, 'video', index === 0);
-            videoFormatsContainer.appendChild(card);
-        });
+    // Process video formats
+    const videoFormats = data.video_formats || [];
+    const audioFormats = data.audio_formats || [];
+    
+    // Use resolution groups if available from backend
+    if (data.resolution_groups) {
+        displayResolutionGroups(data.resolution_groups, videoFormatsContainer);
     } else {
-        videoFormatsContainer.innerHTML = '<p class="no-formats">No video formats available</p>';
+        // Fallback: Categorize manually
+        if (videoFormats.length === 0) {
+            videoFormatsContainer.innerHTML = '<p class="no-formats">No video formats available for this video</p>';
+        } else {
+            const categorizedFormats = categorizeVideoFormats(videoFormats);
+            displayCategorizedFormats(categorizedFormats, videoFormatsContainer, 'video');
+        }
     }
     
-    // Display audio formats
-    if (data.audio_formats && data.audio_formats.length > 0) {
-        data.audio_formats.forEach((format, index) => {
+    if (audioFormats.length === 0) {
+        audioFormatsContainer.innerHTML = '<p class="no-formats">No audio formats available for this video</p>';
+    } else {
+        // Display audio formats
+        const sortedAudioFormats = audioFormats.sort((a, b) => {
+            const aBitrate = parseInt(a.abr || a.tbr || '0');
+            const bBitrate = parseInt(b.abr || b.tbr || '0');
+            return bBitrate - aBitrate;
+        });
+        
+        sortedAudioFormats.forEach((format, index) => {
             const card = createFormatCard(format, 'audio', index === 0);
             audioFormatsContainer.appendChild(card);
         });
-    } else {
-        audioFormatsContainer.innerHTML = '<p class="no-formats">No audio formats available</p>';
     }
 }
 
+// Display resolution groups from backend
+function displayResolutionGroups(resolutionGroups, container) {
+    const categoryOrder = ['4K', '2K', '1080p', '720p', '480p', '360p', '240p', '144p', 'Other'];
+    
+    categoryOrder.forEach(categoryName => {
+        if (resolutionGroups[categoryName] && resolutionGroups[categoryName].length > 0) {
+            // Add category header
+            const categoryHeader = document.createElement('div');
+            categoryHeader.className = 'category-header';
+            categoryHeader.innerHTML = `<h4>${categoryName} Quality (${resolutionGroups[categoryName].length} options)</h4>`;
+            container.appendChild(categoryHeader);
+            
+            // Display formats in this category
+            resolutionGroups[categoryName].forEach((format, index) => {
+                const isRecommended = (categoryName === '1080p' || categoryName === '720p') && index === 0;
+                const card = createFormatCard(format, 'video', isRecommended);
+                container.appendChild(card);
+            });
+        }
+    });
+}
+
+// Categorize video formats by resolution (fallback)
+function categorizeVideoFormats(formats) {
+    const categories = {
+        '4K': [],    // 2160p and above
+        '2K': [],    // 1440p
+        '1080p': [], // 1080p
+        '720p': [],  // 720p
+        '480p': [],  // 480p
+        '360p': [],  // 360p
+        '240p': [],  // 240p
+        '144p': []   // 144p
+    };
+    
+    formats.forEach(format => {
+        const height = format.height || parseInt((format.resolution || '0').match(/\d+/)?.[0]) || 0;
+        
+        if (height >= 2160) {
+            categories['4K'].push(format);
+        } else if (height >= 1440) {
+            categories['2K'].push(format);
+        } else if (height >= 1080) {
+            categories['1080p'].push(format);
+        } else if (height >= 720) {
+            categories['720p'].push(format);
+        } else if (height >= 480) {
+            categories['480p'].push(format);
+        } else if (height >= 360) {
+            categories['360p'].push(format);
+        } else if (height >= 240) {
+            categories['240p'].push(format);
+        } else if (height >= 144) {
+            categories['144p'].push(format);
+        }
+    });
+    
+    // Remove empty categories
+    Object.keys(categories).forEach(key => {
+        if (categories[key].length === 0) {
+            delete categories[key];
+        }
+    });
+    
+    return categories;
+}
+
+// Display categorized formats (fallback)
+function displayCategorizedFormats(categories, container, type) {
+    const categoryOrder = ['4K', '2K', '1080p', '720p', '480p', '360p', '240p', '144p'];
+    
+    categoryOrder.forEach(categoryName => {
+        if (categories[categoryName]) {
+            // Add category header
+            const categoryHeader = document.createElement('div');
+            categoryHeader.className = 'category-header';
+            categoryHeader.innerHTML = `<h4>${categoryName} Quality (${categories[categoryName].length} options)</h4>`;
+            container.appendChild(categoryHeader);
+            
+            // Sort formats in this category by filesize (largest first)
+            const sortedFormats = categories[categoryName].sort((a, b) => {
+                const aSize = a.filesize || 0;
+                const bSize = b.filesize || 0;
+                return bSize - aSize;
+            });
+            
+            // Display formats in this category
+            sortedFormats.forEach((format, index) => {
+                const isRecommended = (categoryName === '1080p' || categoryName === '720p') && index === 0;
+                const card = createFormatCard(format, type, isRecommended);
+                container.appendChild(card);
+            });
+        }
+    });
+}
+
+// Create format card - IMPROVED with actual size data
 function createFormatCard(format, type, isRecommended = false) {
     const card = document.createElement('div');
     card.className = 'format-card';
-    card.dataset.id = format.format_id || format.id;
+    card.dataset.id = format.format_id || format.id || 'unknown';
     card.dataset.type = type;
+    
+    // Get actual file size
+    let fileSize = 'Calculating...';
+    let fileSizeBytes = 0;
+    
+    if (format.filesize && format.filesize > 0) {
+        fileSizeBytes = format.filesize;
+        fileSize = formatFileSize(fileSizeBytes);
+    } else if (format.filesize_readable && format.filesize_readable !== "0 B") {
+        fileSize = format.filesize_readable;
+    } else if (format.size) {
+        fileSize = format.size;
+    } else {
+        // Estimate size based on format
+        fileSize = estimateFileSize(format, type);
+    }
+    
+    // Determine quality/resolution name
+    let qualityName = 'Unknown';
+    let resolutionText = '';
+    
+    if (type === 'video') {
+        if (format.format_note && format.format_note !== 'none') {
+            qualityName = format.format_note;
+        } else if (format.resolution && format.resolution !== 'audio only') {
+            qualityName = format.resolution;
+        } else if (format.height) {
+            const width = format.width || Math.round(format.height * 16/9);
+            qualityName = `${width}x${format.height}`;
+        } else {
+            qualityName = 'Video';
+        }
+        
+        resolutionText = qualityName;
+    } else {
+        if (format.abr) {
+            qualityName = `${format.abr}kbps`;
+        } else if (format.tbr) {
+            qualityName = `${format.tbr}kbps`;
+        } else {
+            qualityName = 'Audio';
+        }
+        resolutionText = 'Audio Only';
+    }
+    
+    // Extension
+    const ext = (format.ext || 'mp4').toUpperCase();
+    
+    // Codec info
+    let codecInfo = 'Unknown';
+    if (type === 'video') {
+        codecInfo = format.vcodec || format.ext || 'MP4';
+        if (codecInfo === 'none') codecInfo = 'MP4';
+    } else {
+        codecInfo = format.acodec || 'MP3';
+        if (codecInfo === 'none') codecInfo = 'MP3';
+    }
+    
+    card.innerHTML = `
+        ${isRecommended ? '<div class="recommended-badge"><i class="fas fa-star"></i> Recommended</div>' : ''}
+        <div class="format-header">
+            <div class="format-icon">
+                <i class="${type === 'video' ? 'fas fa-video' : 'fas fa-music'}"></i>
+            </div>
+            <div class="format-info">
+                <h4>${ext} • ${qualityName}</h4>
+                <p>${resolutionText}</p>
+            </div>
+        </div>
+        <div class="format-details">
+            <div class="detail">
+                <span class="label">File Size</span>
+                <span class="value">${fileSize}</span>
+            </div>
+            <div class="detail">
+                <span class="label">${type === 'video' ? 'Format' : 'Type'}</span>
+                <span class="value">${codecInfo}</span>
+            </div>
+        </div>
+    `;
     
     if (isRecommended) {
         card.classList.add('selected');
@@ -1642,41 +2086,15 @@ function createFormatCard(format, type, isRecommended = false) {
         }
     }
     
-    const icon = type === 'video' ? 'fas fa-video' : 'fas fa-music';
-    const name = format.format_note || format.resolution || format.name || 'Audio';
-    const quality = format.resolution || format.format_note || (format.abr ? `${format.abr}kbps` : 'Unknown');
-    const size = format.filesize_readable || format.size || 'Unknown size';
-    const ext = (format.ext || 'mp4').toUpperCase();
-    
-    card.innerHTML = `
-        ${isRecommended ? '<div class="recommended-badge">Recommended</div>' : ''}
-        <div class="format-header">
-            <div class="format-icon">
-                <i class="${icon}"></i>
-            </div>
-            <div class="format-info">
-                <h4>${ext} ${name}</h4>
-                <p>${quality}</p>
-            </div>
-        </div>
-        <div class="format-details">
-            <div class="detail">
-                <span class="label">File Size</span>
-                <span class="value">${size}</span>
-            </div>
-            <div class="detail">
-                <span class="label">${type === 'video' ? 'Codec' : 'Type'}</span>
-                <span class="value">${type === 'video' ? (format.vcodec || 'Unknown') : 'Audio'}</span>
-            </div>
-        </div>
-    `;
-    
     card.onclick = () => {
         // Remove selected class from all cards in this tab
-        const container = type === 'video' ? 'videoFormats' : 'audioFormats';
-        document.getElementById(container).querySelectorAll('.format-card').forEach(c => {
-            c.classList.remove('selected');
-        });
+        const containerId = type === 'video' ? 'videoFormats' : 'audioFormats';
+        const container = document.getElementById(containerId);
+        if (container) {
+            container.querySelectorAll('.format-card').forEach(c => {
+                c.classList.remove('selected');
+            });
+        }
         
         // Add selected class to clicked card
         card.classList.add('selected');
@@ -1692,28 +2110,78 @@ function createFormatCard(format, type, isRecommended = false) {
     return card;
 }
 
-// Tab switching
+// Estimate file size based on format
+function estimateFileSize(format, type) {
+    if (type === 'audio') {
+        if (format.abr) {
+            const bitrate = parseInt(format.abr) || 128;
+            // Estimate: bitrate (kbps) * duration (seconds) / 8
+            if (currentState.videoInfo && currentState.videoInfo.duration_seconds) {
+                const duration = currentState.videoInfo.duration_seconds || 180;
+                const sizeMB = (bitrate * duration) / (8 * 1024);
+                return sizeMB.toFixed(1) + ' MB';
+            }
+            return '~' + Math.round(bitrate * 3 / 8) + ' MB';
+        }
+        return '~5-10 MB';
+    } else {
+        // Video size estimation
+        const height = format.height || parseInt((format.resolution || '0').match(/\d+/)?.[0]) || 480;
+        let bitrate = 0;
+        
+        if (height >= 2160) bitrate = 35000; // 4K
+        else if (height >= 1440) bitrate = 16000; // 2K
+        else if (height >= 1080) bitrate = 8000; // 1080p
+        else if (height >= 720) bitrate = 4000; // 720p
+        else if (height >= 480) bitrate = 2000; // 480p
+        else if (height >= 360) bitrate = 1000; // 360p
+        else if (height >= 240) bitrate = 500; // 240p
+        else bitrate = 300; // 144p
+        
+        if (currentState.videoInfo && currentState.videoInfo.duration_seconds) {
+            const duration = currentState.videoInfo.duration_seconds || 180;
+            const sizeMB = (bitrate * duration) / (8 * 1024);
+            return sizeMB.toFixed(1) + ' MB';
+        }
+        
+        return '~' + Math.round(bitrate * 3 / 8) + ' MB';
+    }
+}
+
+// Tab switching - FIXED
 function switchTab(tab) {
     currentState.currentTab = tab;
     
     // Update tab buttons
     document.querySelectorAll('.tab-btn').forEach(btn => {
         btn.classList.remove('active');
-        if (btn.dataset.tab === tab) {
+        if (btn.textContent.includes(tab === 'video' ? 'Video' : 'Audio')) {
             btn.classList.add('active');
         }
     });
     
     // Update tab content
     document.querySelectorAll('.tab-content').forEach(content => {
+        content.classList.remove('active');
         content.style.display = 'none';
     });
     
-    document.getElementById(tab + 'Tab').style.display = 'grid';
+    const activeTab = document.getElementById(tab + 'Tab');
+    if (activeTab) {
+        activeTab.classList.add('active');
+        activeTab.style.display = 'grid';
+    }
 }
 
-// Start download
+// IMPROVED: Start download function - FIXED download trigger issue
 async function startDownload(type) {
+    console.log(`Starting ${type} download...`);
+    
+    if (currentState.isDownloading) {
+        showError('Please wait, another download is in progress');
+        return;
+    }
+    
     const selectedFormat = type === 'video' ? currentState.selectedVideoFormat : currentState.selectedAudioFormat;
     
     if (!selectedFormat) {
@@ -1722,17 +2190,42 @@ async function startDownload(type) {
     }
     
     if (!currentState.url) {
-        showError('No video URL found');
+        showError('No video URL found. Please analyze a video first.');
         return;
     }
     
+    // Get the download button
+    let downloadBtn;
+    if (type === 'video') {
+        downloadBtn = document.querySelector('#videoTab .download-btn');
+    } else {
+        downloadBtn = document.querySelector('#audioTab .download-btn');
+    }
+    
+    if (!downloadBtn) {
+        console.error('Download button not found');
+        showError('Download button not found');
+        return;
+    }
+    
+    const originalText = downloadBtn.innerHTML;
+    
+    // Update button state
+    downloadBtn.disabled = true;
+    downloadBtn.innerHTML = '<span class="loader small"></span> Preparing download...';
+    currentState.isDownloading = true;
+    
+    // Show loading
+    showLoading('Preparing download... This may take a moment.');
+    
     try {
-        const downloadBtn = type === 'video' ? document.getElementById('downloadVideoBtn') : document.getElementById('downloadAudioBtn');
-        const originalText = downloadBtn.innerHTML;
-        downloadBtn.disabled = true;
-        downloadBtn.innerHTML = '<span class="loader small"></span> Downloading...';
+        console.log('Sending download request to backend:', {
+            url: currentState.url,
+            format_id: selectedFormat.format_id,
+            format_note: selectedFormat.format_note
+        });
         
-        // Call backend download API
+        // Send download request
         const response = await fetch(`${API_BASE_URL}/download`, {
             method: 'POST',
             headers: {
@@ -1740,72 +2233,106 @@ async function startDownload(type) {
             },
             body: JSON.stringify({
                 url: currentState.url,
-                format_id: selectedFormat.format_id || selectedFormat.id
+                format_id: selectedFormat.format_id
             })
         });
         
+        console.log('Download response status:', response.status);
+        
         if (!response.ok) {
-            const errorData = await response.json();
+            const errorText = await response.text();
+            console.error('Download error response:', errorText);
+            
+            let errorData;
+            try {
+                errorData = JSON.parse(errorText);
+            } catch (e) {
+                errorData = { error: `Server error: ${response.status}` };
+            }
+            
             throw new Error(errorData.error || 'Download failed');
         }
         
         const data = await response.json();
+        console.log('Download success data:', data);
         
         if (!data.success) {
             throw new Error(data.error || 'Download failed');
         }
         
+        // Hide loading
+        hideLoading();
+        
         // Show success message
-        showSuccess(`Download ready: ${data.filename}`);
+        const fileName = data.filename || 'video.mp4';
+        showSuccess(`Download ready: ${fileName}`, 3000);
         
-        // Create download link
-        if (data.download_url && data.filename) {
-            // Use the full URL for download
-            const baseUrl = window.location.origin;
-            const downloadUrl = data.download_url.startsWith('http') 
-                ? data.download_url 
-                : `${baseUrl}${data.download_url}`;
+        // Trigger automatic download - FIXED METHOD
+        if (data.download_url) {
+            triggerFileDownload(data.download_url, data.filename || fileName);
             
-            console.log('Download URL:', downloadUrl);
-            
-            const downloadLink = document.createElement('a');
-            downloadLink.href = downloadUrl;
-            downloadLink.download = data.filename;
-            downloadLink.style.display = 'none';
-            document.body.appendChild(downloadLink);
-            
-            // Trigger download
+            // Reset after successful download
             setTimeout(() => {
-                downloadLink.click();
-                document.body.removeChild(downloadLink);
-            }, 100);
+                downloadBtn.disabled = false;
+                downloadBtn.innerHTML = originalText;
+                currentState.isDownloading = false;
+                
+                // Auto reset to home after delay
+                setTimeout(() => {
+                    resetToStep1();
+                    showSection('home');
+                }, 1500);
+            }, 1000);
+        } else {
+            throw new Error('No download URL received');
         }
-        
-        // Reset button state
-        setTimeout(() => {
-            downloadBtn.disabled = false;
-            downloadBtn.innerHTML = originalText;
-            
-            // Reset after delay
-            setTimeout(() => {
-                resetToStep1();
-                showSection('home');
-            }, 2000);
-        }, 1000);
         
     } catch (error) {
-        console.error('Error:', error);
-        showError(error.message);
+        console.error('Download failed:', error);
+        hideLoading();
+        showError(`Download failed: ${error.message}`);
         
-        // Reset button state on error
-        const downloadBtn = type === 'video' ? document.getElementById('downloadVideoBtn') : document.getElementById('downloadAudioBtn');
-        if (downloadBtn) {
-            downloadBtn.disabled = false;
-            downloadBtn.innerHTML = type === 'video' 
-                ? '<i class="fas fa-download"></i> Download Video' 
-                : '<i class="fas fa-download"></i> Download Audio';
-        }
+        // Reset button state
+        downloadBtn.disabled = false;
+        downloadBtn.innerHTML = originalText;
+        currentState.isDownloading = false;
     }
+}
+
+// FIXED: Function to trigger file download
+function triggerFileDownload(downloadUrl, filename) {
+    console.log('Triggering download:', { downloadUrl, filename });
+    
+    // Method 1: Create download link (Most reliable)
+    const link = document.createElement('a');
+    
+    // Handle relative URLs
+    if (!downloadUrl.startsWith('http')) {
+        const baseUrl = window.location.origin;
+        downloadUrl = baseUrl + (downloadUrl.startsWith('/') ? '' : '/') + downloadUrl;
+    }
+    
+    link.href = downloadUrl;
+    link.download = filename || 'video.mp4';
+    link.target = '_blank'; // Open in new tab for better handling
+    
+    // Add to document
+    document.body.appendChild(link);
+    
+    // Trigger download
+    link.click();
+    
+    // Clean up
+    setTimeout(() => {
+        if (link.parentNode) {
+            document.body.removeChild(link);
+        }
+    }, 1000);
+    
+    // Method 2: Direct window location (fallback)
+    setTimeout(() => {
+        window.location.href = downloadUrl;
+    }, 500);
 }
 
 // Utility functions for showing messages
@@ -1834,7 +2361,7 @@ function showError(message) {
     }, 5000);
 }
 
-function showSuccess(message) {
+function showSuccess(message, duration = 5000) {
     // Remove existing toasts
     document.querySelectorAll('.toast').forEach(toast => toast.remove());
     
@@ -1856,11 +2383,40 @@ function showSuccess(message) {
                 document.body.removeChild(toast);
             }
         }, 300);
-    }, 5000);
+    }, duration);
 }
 
-// Initialize
+// Loading overlay functions
+function showLoading(message = 'Processing...') {
+    let overlay = document.getElementById('loadingOverlay');
+    if (!overlay) {
+        overlay = document.createElement('div');
+        overlay.id = 'loadingOverlay';
+        overlay.className = 'loading-overlay';
+        overlay.innerHTML = `
+            <div class="loading-content">
+                <span class="loader" style="width: 50px; height: 50px; border-width: 4px;"></span>
+                <span class="loading-text">${message}</span>
+            </div>
+        `;
+        document.body.appendChild(overlay);
+    } else {
+        overlay.querySelector('.loading-text').textContent = message;
+    }
+    overlay.style.display = 'flex';
+}
+
+function hideLoading() {
+    const overlay = document.getElementById('loadingOverlay');
+    if (overlay) {
+        overlay.style.display = 'none';
+    }
+}
+
+// Initialize with fixes
 document.addEventListener('DOMContentLoaded', function() {
+    console.log("Smart Downloader Initialized");
+    
     // Initialize theme
     initTheme();
     
@@ -1870,17 +2426,36 @@ document.addEventListener('DOMContentLoaded', function() {
     // Add enter key support for URL input
     const urlInput = document.getElementById('videoUrl');
     if (urlInput) {
+        // Prevent form submission
         urlInput.addEventListener('keypress', function(e) {
             if (e.key === 'Enter') {
+                e.preventDefault();
                 fetchVideoInfo();
             }
         });
         
-        // Set initial example
-        setExample('youtube');
+        // Also prevent default form behavior
+        const urlSection = document.getElementById('urlSection');
+        if (urlSection) {
+            urlSection.addEventListener('submit', function(e) {
+                e.preventDefault();
+                fetchVideoInfo();
+            });
+        }
+        
+        // REMOVED: Pahle se koi example URL set nahi karenge
+        // Jab user platform tags par click karega tab hi example set hoga
     }
     
-    // Add CSS for toasts and loading
+    // Prevent all form submissions
+    document.querySelectorAll('form').forEach(form => {
+        form.addEventListener('submit', function(e) {
+            e.preventDefault();
+            return false;
+        });
+    });
+    
+    // Add CSS for toasts, loading, and categories
     const style = document.createElement('style');
     style.textContent = `
         .toast {
@@ -1889,9 +2464,9 @@ document.addEventListener('DOMContentLoaded', function() {
             right: 20px;
             padding: 15px 20px;
             background: var(--card-bg);
-            color: var(--text-primary);
+            color: var(--text-color);
             border-radius: 8px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            box-shadow: var(--shadow);
             display: flex;
             align-items: center;
             gap: 10px;
@@ -1900,6 +2475,7 @@ document.addEventListener('DOMContentLoaded', function() {
             z-index: 1000;
             border-left: 4px solid transparent;
             max-width: 400px;
+            font-weight: 500;
         }
         
         .toast.show {
@@ -1908,6 +2484,7 @@ document.addEventListener('DOMContentLoaded', function() {
         
         .toast.error {
             border-left-color: #ff4757;
+            background: color-mix(in srgb, #ff4757 10%, var(--card-bg));
         }
         
         .toast.error i {
@@ -1916,10 +2493,38 @@ document.addEventListener('DOMContentLoaded', function() {
         
         .toast.success {
             border-left-color: #2ed573;
+            background: color-mix(in srgb, #2ed573 10%, var(--card-bg));
         }
         
         .toast.success i {
             color: #2ed573;
+        }
+        
+        .hint-message {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--primary-color);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 8px;
+            z-index: 1000;
+            animation: fadeInUp 0.3s ease;
+            box-shadow: 0 4px 15px rgba(33, 150, 243, 0.3);
+            font-size: 0.9rem;
+            transition: all 0.3s ease;
+        }
+        
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateX(-50%) translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(-50%) translateY(0);
+            }
         }
         
         .loading {
@@ -1927,12 +2532,14 @@ document.addEventListener('DOMContentLoaded', function() {
             padding: 2rem;
             color: var(--text-secondary);
             font-size: 1.1rem;
+            grid-column: 1 / -1;
         }
         
         .no-formats {
             color: var(--text-secondary);
             text-align: center;
             padding: 2rem;
+            grid-column: 1 / -1;
         }
         
         .loader.small {
@@ -1941,6 +2548,7 @@ document.addEventListener('DOMContentLoaded', function() {
             border-width: 2px;
             display: inline-block;
             margin-right: 8px;
+            vertical-align: middle;
         }
         
         /* Fix for tab content display */
@@ -1949,11 +2557,153 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         
         .tab-content.active {
-            display: grid;
+            display: grid !important;
+        }
+        
+        /* Loading overlay */
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.85);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 9999;
+            color: white;
+            font-size: 1.2rem;
+            flex-direction: column;
+            gap: 15px;
+        }
+        
+        .loading-content {
+            text-align: center;
+            padding: 30px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 15px;
+            backdrop-filter: blur(10px);
+        }
+        
+        .loading-text {
+            display: block;
+            margin-top: 15px;
+            font-weight: 500;
+        }
+        
+        /* Category headers */
+        .category-header {
+            grid-column: 1 / -1;
+            margin-top: 20px;
+            margin-bottom: 10px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid var(--border-color);
+        }
+        
+        .category-header h4 {
+            color: var(--primary-color);
+            font-size: 1.1rem;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .category-header h4:before {
+            content: "▸";
+            color: var(--primary-color);
+        }
+        
+        /* Improved format cards */
+        .format-card {
+            transition: all 0.3s ease;
+        }
+        
+        .format-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+        }
+        
+        .format-card.selected {
+            border-color: var(--primary-color);
+            background: linear-gradient(135deg, 
+                rgba(33, 150, 243, 0.1), 
+                rgba(255, 64, 129, 0.05)
+            );
+        }
+        
+        .recommended-badge {
+            background: linear-gradient(135deg, #ff9800, #ff5722);
+            color: white;
+            padding: 5px 10px;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            position: absolute;
+            top: 10px;
+            right: 10px;
+        }
+        
+        /* Prevent text selection during loading */
+        .loading * {
+            user-select: none;
+        }
+        
+        /* Size indicator improvements */
+        .size-indicator {
+            background: var(--border-color);
+        }
+        
+        .size-fill {
+            background: linear-gradient(90deg, #2196f3, #ff4081);
+            transition: width 1.5s ease-in-out;
+        }
+        
+        /* Button cursor fix */
+        button, .format-card, .platform-tag {
+            cursor: pointer;
+        }
+        
+        button:disabled, .format-card.selected {
+            cursor: default;
+        }
+        
+        /* Platform tags styling */
+        .platform-tag {
+            transition: all 0.3s ease;
+        }
+        
+        .platform-tag:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+        
+        /* Input placeholder styling */
+        .url-input::placeholder {
+            color: var(--text-secondary);
+            opacity: 0.7;
         }
     `;
     document.head.appendChild(style);
 });
+
+// Test function for debugging
+function testDownloadFlow() {
+    console.log("=== Testing Download Flow ===");
+    
+    // Test with a valid YouTube URL
+    const testUrl = "https://www.youtube.com/watch?v=hMy5za-m5Ew";
+    document.getElementById('videoUrl').value = testUrl;
+    
+    console.log("Test URL set:", testUrl);
+    console.log("Is valid?", isValidUrl(testUrl));
+    
+    // Simulate analyze
+    fetchVideoInfo();
+}
 </script>
 </body>
 </html>
